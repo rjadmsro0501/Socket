@@ -1,3 +1,0 @@
-beginthread()
- 
-DWORD WINAPI makeThread() 
