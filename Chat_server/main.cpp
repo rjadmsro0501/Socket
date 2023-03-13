@@ -47,6 +47,11 @@ int main()
 
 int server_init()
 {
+	// 서버 초기화
+	// WinSock 라이브러리 초기화
+	// socket() 함수호출 서버소켓 생성
+	// bind()
+	// listen()
 	WSADATA		wsaData;
 	SOCKET		listenSocket;
 	SOCKADDR_IN serverAddr;
@@ -90,11 +95,21 @@ int server_init()
 
 int server_close()
 {
+	for (int i = 1; i < g_total_socket_count; i++)
+	{
+		closesocket(sock_array[i].m_socket);
+		WSACloseEvent(sock_array[i].m_handle);
+	}
+
 	return 0;
 }
 
 unsigned int __stdcall do_chat_service(void* _param)
 {
+	// 채팅 서비스
+	// 서버소켓 초기화
+	// 클라이언트 연결 요청 수신
+	// 클라이언트가 보낸 메시지를 읽고 다시전달
 	SOCKET serverSocket;
 	WSANETWORKEVENTS checkEventHandle;
 
@@ -155,12 +170,43 @@ unsigned int __stdcall do_chat_service(void* _param)
 
 unsigned int __stdcall recv_and_forward(void* _param)
 {
+	// 클라이언트 메시지를 받아서 다른클라이언트에게 전달
+	int index = (int)_param;
 
+	char msg[MAXBYTE];
+	char share_msg[MAXBYTE];
+
+	SOCKADDR_IN clientAddr;
+	int recvLen = 0;
+	int addrLen = 0;
+
+	char* token1 = NULL;
+	char* next_token = NULL;
+
+	memset(&clientAddr, 0, sizeof(clientAddr));
+
+	if ((recvLen = recv(sock_array[index].m_socket, msg, MAXBYTE, 0)) > 0)
+	{
+		addrLen = sizeof(clientAddr);
+		getpeername(sock_array[index].m_socket, (sockaddr*)&clientAddr, &addrLen);
+		strcpy_s(share_msg, msg);
+		if (strlen(sock_array[index].m_nick) <= 0)
+		{
+			token1 = strtok_s(msg, "]", &next_token);
+			strcpy_s(sock_array[index].m_nick, token1 + 1);
+		}
+		for (int i = 1; i < g_total_socket_count; i++)
+		{
+			send(sock_array[i].m_socket,share_msg,MAXBYTE,0);
+		}
+	}
+	_endthreadex(0);
 	return 0;
 }
 
 int add_client(int _index)
 {
+	// 클라이언트 추가
 	SOCKADDR_IN clientAddr;
 	SOCKET clientSocket;
 	int addrLen = sizeof(clientAddr);
@@ -192,6 +238,8 @@ int add_client(int _index)
 
 int read_client(int _index)
 {
+	// 클라이언트 메시지를 읽기
+	// 스레드를 사용하여 클라이언트의 메시지 수신작업을 처리
 	unsigned int threadId;
 	HANDLE mainThread = (HANDLE)_beginthreadex(NULL,0,recv_and_forward,(void*)_index,0,&threadId);
 	WaitForSingleObject(mainThread, INFINITE);
@@ -202,7 +250,30 @@ int read_client(int _index)
 
 void remove_client(int _index)
 {
+	// 접속종료한 클라이언트 정보 송신
+	// 등록한 소켓 배열 삭제
+	// 등록한 이벤트 객체 삭제
+	// 접속한 클라이언트 인덱스 --
+	// 소켓,이벤트 객체 삭제로 중간에 빈 배열 정리
 
+	char remove_ip[256];
+	char msg[MAXBYTE];
+
+	strcpy_s(remove_ip,get_client_ip(_index));
+	printf("client logout (Index : %d, IP : %s, Nick : %s)\n",_index, remove_ip, sock_array[_index].m_nick);
+	sprintf_s(msg,"client logout (IP : %s , Nick : %d)\n",remove_ip,sock_array[_index].m_nick);
+
+	closesocket(sock_array[_index].m_socket);
+	WSACloseEvent(sock_array[_index].m_handle);
+
+	g_total_socket_count--;
+	sock_array[_index].m_socket = sock_array[g_total_socket_count].m_socket;
+	sock_array[_index].m_handle = sock_array[g_total_socket_count].m_handle;
+
+	strcpy_s(sock_array[_index].m_ipaddr, sock_array[g_total_socket_count].m_ipaddr);
+	strcpy_s(sock_array[_index].m_nick, sock_array[g_total_socket_count].m_nick);
+
+	notify_client(msg);
 }
 
 int notify_client(char* _msg)
@@ -214,5 +285,14 @@ int notify_client(char* _msg)
 
 char* get_client_ip(int _index)
 {
-	return nullptr;
+	static char ipaddress[256];
+	int addr_len;
+	struct sockaddr_in sock;
+
+	addr_len = sizeof(sock);
+	if (getpeername(sock_array[_index].m_socket, (struct sockaddr*)&sock, &addr_len) < 0)
+		return NULL;
+
+	strcpy_s(ipaddress, inet_ntoa(sock.sin_addr));
+	return ipaddress;
 }
